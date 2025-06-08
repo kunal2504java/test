@@ -1,0 +1,171 @@
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.*;
+
+public class TreeLockingSubmission {
+    static class Node {
+        final String name;
+        boolean isLocked;
+        int lockedBy;
+        int lockedDescendantsCount;
+        Node parent;
+        final List<Node> children;
+
+        Node(String name, Node parent) {
+            this.name = name;
+            this.parent = parent;
+            this.isLocked = false;
+            this.lockedBy = -1;
+            this.lockedDescendantsCount = 0;
+            this.children = new ArrayList<>();
+        }
+    }
+
+    private final Map<String, Node> nodeMap;
+
+    public TreeLockingSubmission() {
+        this.nodeMap = new HashMap<>();
+    }
+
+    public static void main(String[] args) throws IOException {
+        // Fast I/O
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        StringBuilder resultBuilder = new StringBuilder();
+        
+        // Read input
+        int n = Integer.parseInt(br.readLine().trim());
+        int m = Integer.parseInt(br.readLine().trim());
+        int q = Integer.parseInt(br.readLine().trim());
+
+        // Read node names
+        String[] nodeNames = new String[n];
+        for (int i = 0; i < n; i++) {
+            nodeNames[i] = br.readLine().trim();
+        }
+
+        // Build tree
+        TreeLockingSubmission tree = new TreeLockingSubmission();
+        tree.buildTree(nodeNames, m);
+
+        // Process queries
+        for (int i = 0; i < q; i++) {
+            String[] query = br.readLine().trim().split(" ");
+            int opType = Integer.parseInt(query[0]);
+            String nodeName = query[1];
+            int userId = Integer.parseInt(query[2]);
+
+            boolean result = false;
+            switch (opType) {
+                case 1: result = tree.lock(nodeName, userId); break;
+                case 2: result = tree.unlock(nodeName, userId); break;
+                case 3: result = tree.upgradeLock(nodeName, userId); break;
+            }
+            resultBuilder.append(result).append('\n');
+        }
+        
+        // Output results
+        System.out.print(resultBuilder);
+        br.close();
+    }
+
+    private void buildTree(String[] nodeNames, int m) {
+        // Create root
+        Node root = new Node(nodeNames[0], null);
+        nodeMap.put(nodeNames[0], root);
+
+        // Build tree level by level
+        Queue<Node> queue = new LinkedList<>();
+        queue.add(root);
+        int childIndex = 1;
+
+        while (!queue.isEmpty() && childIndex < nodeNames.length) {
+            Node current = queue.poll();
+            // Add children
+            for (int i = 0; i < m && childIndex < nodeNames.length; i++) {
+                Node child = new Node(nodeNames[childIndex], current);
+                nodeMap.put(nodeNames[childIndex], child);
+                current.children.add(child);
+                queue.add(child);
+                childIndex++;
+            }
+        }
+    }
+
+    public boolean lock(String name, int uid) {
+        Node node = nodeMap.get(name);
+        if (node == null || node.isLocked) return false;
+
+        // Check descendants
+        if (node.lockedDescendantsCount > 0) return false;
+
+        // Check ancestors
+        Node current = node.parent;
+        while (current != null) {
+            if (current.isLocked) return false;
+            current = current.parent;
+        }
+
+        // Lock node
+        node.isLocked = true;
+        node.lockedBy = uid;
+        updateAncestorCounts(node.parent, 1);
+        return true;
+    }
+
+    public boolean unlock(String name, int uid) {
+        Node node = nodeMap.get(name);
+        if (node == null || !node.isLocked || node.lockedBy != uid) return false;
+
+        node.isLocked = false;
+        node.lockedBy = -1;
+        updateAncestorCounts(node.parent, -1);
+        return true;
+    }
+
+    public boolean upgradeLock(String name, int uid) {
+        Node node = nodeMap.get(name);
+        if (node == null || node.isLocked || node.lockedDescendantsCount == 0) return false;
+
+        // Check ancestors
+        Node current = node.parent;
+        while (current != null) {
+            if (current.isLocked) return false;
+            current = current.parent;
+        }
+
+        // Collect and verify locked descendants
+        List<Node> lockedDescendants = new ArrayList<>();
+        if (!collectAndVerifyDescendants(node, uid, lockedDescendants)) return false;
+
+        // Unlock descendants
+        for (Node desc : lockedDescendants) {
+            desc.isLocked = false;
+            desc.lockedBy = -1;
+        }
+
+        // Lock this node
+        node.isLocked = true;
+        node.lockedBy = uid;
+        updateAncestorCounts(node.parent, 1 - lockedDescendants.size());
+        return true;
+    }
+
+    private void updateAncestorCounts(Node node, int delta) {
+        while (node != null) {
+            node.lockedDescendantsCount += delta;
+            node = node.parent;
+        }
+    }
+
+    private boolean collectAndVerifyDescendants(Node node, int uid, List<Node> lockedDescendants) {
+        if (node.isLocked) {
+            if (node.lockedBy != uid) return false;
+            lockedDescendants.add(node);
+        }
+        for (Node child : node.children) {
+            if (!collectAndVerifyDescendants(child, uid, lockedDescendants)) return false;
+        }
+        return true;
+    }
+} 
