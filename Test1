@@ -1,0 +1,193 @@
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.*;
+
+public class TreeLocking {
+
+    // Represents a single node in the M-ary tree
+    static class Node {
+        String name;
+        boolean isLocked;
+        int lockedBy; // User ID
+        int lockedDescendantsCount;
+        Node parent;
+        List<Node> children;
+
+        Node(String name, Node parent) {
+            this.name = name;
+            this.parent = parent;
+            this.isLocked = false;
+            this.lockedBy = -1; // -1 indicates no user
+            this.lockedDescendantsCount = 0;
+            this.children = new ArrayList<>();
+        }
+    }
+
+    private static Map<String, Node> strToNodeMap;
+
+    public static void main(String[] args) throws IOException {
+        // Fast I/O
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        
+        // Read initial tree parameters
+        int n = Integer.parseInt(br.readLine().trim());
+        int m = Integer.parseInt(br.readLine().trim());
+        int q = Integer.parseInt(br.readLine().trim());
+
+        // Read node names and build the tree
+        String[] nodeNames = new String[n];
+        for (int i = 0; i < n; i++) {
+            nodeNames[i] = br.readLine().trim();
+        }
+
+        buildTree(nodeNames, m);
+
+        // Process queries
+        StringBuilder resultBuilder = new StringBuilder();
+        for (int i = 0; i < q; i++) {
+            String[] queryParts = br.readLine().trim().split(" ");
+            int opType = Integer.parseInt(queryParts[0]);
+            String nodeName = queryParts[1];
+            int userId = Integer.parseInt(queryParts[2]);
+
+            boolean result = false;
+            switch (opType) {
+                case 1:
+                    result = lock(nodeName, userId);
+                    break;
+                case 2:
+                    result = unlock(nodeName, userId);
+                    break;
+                case 3:
+                    result = upgradeLock(nodeName, userId);
+                    break;
+            }
+            resultBuilder.append(result).append("\n");
+        }
+        System.out.print(resultBuilder.toString());
+    }
+
+    /**
+     * Builds a fully balanced M-ary tree from a list of node names.
+     */
+    private static void buildTree(String[] nodeNames, int m) {
+        strToNodeMap = new HashMap<>();
+        Node root = new Node(nodeNames[0], null);
+        strToNodeMap.put(nodeNames[0], root);
+
+        Queue<Node> queue = new LinkedList<>();
+        queue.add(root);
+
+        int childIndex = 1;
+        while (!queue.isEmpty() && childIndex < nodeNames.length) {
+            Node current = queue.poll();
+            for (int i = 0; i < m && childIndex < nodeNames.length; i++) {
+                Node child = new Node(nodeNames[childIndex], current);
+                strToNodeMap.put(nodeNames[childIndex], child);
+                current.children.add(child);
+                queue.add(child);
+                childIndex++;
+            }
+        }
+    }
+
+    /**
+     * Inform all ancestors about a change in their descendant lock count.
+     */
+    private static void informAncestors(Node node, int change) {
+        Node current = node.parent;
+        while (current != null) {
+            current.lockedDescendantsCount += change;
+            current = current.parent;
+        }
+    }
+
+    public static boolean lock(String name, int uid) {
+        Node node = strToNodeMap.get(name);
+        if (node == null || node.isLocked) {
+            return false;
+        }
+
+        // Check for locked descendants
+        if (node.lockedDescendantsCount > 0) {
+            return false;
+        }
+
+        // Check for locked ancestors
+        Node current = node.parent;
+        while (current != null) {
+            if (current.isLocked) {
+                return false;
+            }
+            current = current.parent;
+        }
+
+        // All clear, perform the lock
+        node.isLocked = true;
+        node.lockedBy = uid;
+        informAncestors(node, 1);
+        return true;
+    }
+
+    public static boolean unlock(String name, int uid) {
+        Node node = strToNodeMap.get(name);
+        // Fail if node doesn't exist, is not locked, or is locked by another user
+        if (node == null || !node.isLocked || node.lockedBy != uid) {
+            return false;
+        }
+
+        // Perform unlock
+        node.isLocked = false;
+        node.lockedBy = -1;
+        informAncestors(node, -1);
+        return true;
+    }
+
+    public static boolean upgradeLock(String name, int uid) {
+        Node node = strToNodeMap.get(name);
+        // Fail if node doesn't exist, is already locked, or has no locked descendants
+        if (node == null || node.isLocked || node.lockedDescendantsCount == 0) {
+            return false;
+        }
+
+        // Check for locked ancestors
+        Node ancestor = node.parent;
+        while (ancestor != null) {
+            if (ancestor.isLocked) {
+                return false;
+            }
+            ancestor = ancestor.parent;
+        }
+        
+        // Collect all locked descendants and verify they are locked by the same UID
+        List<Node> lockedChildrenToUnlock = new ArrayList<>();
+        Queue<Node> queue = new LinkedList<>(node.children);
+
+        while (!queue.isEmpty()) {
+            Node current = queue.poll();
+            if (current.isLocked) {
+                if (current.lockedBy != uid) {
+                    return false; // Found a descendant locked by another user
+                }
+                lockedChildrenToUnlock.add(current);
+            }
+            // Optimization: if a child has no locked descendants, no need to traverse it
+            if(current.lockedDescendantsCount > 0){
+                 queue.addAll(current.children);
+            }
+        }
+        // If all descendants are locked by the same user, proceed with upgrade
+        if (lockedChildrenToUnlock.size() == 0) return false;
+        for (Node childToUnlock : lockedChildrenToUnlock) {
+            childToUnlock.isLocked = false;
+            childToUnlock.lockedBy = -1;
+        }
+        // Update ancestor counts in a single pass
+        int change = 1 - lockedChildrenToUnlock.size();
+        informAncestors(node, change);
+        node.isLocked = true;
+        node.lockedBy = uid;
+        return true;
+    }
+}
